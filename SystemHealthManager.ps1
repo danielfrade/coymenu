@@ -1,7 +1,7 @@
-﻿# SystemHealthManager.ps1
+# SystemHealthManager.ps1
 # Autor: Daniel Vocurca Frade
 # Data: 09/04/2025
-# Descrição: Ferramenta interativa avançada
+# Descrição: Ferramenta interativa avançada CoyMenu
 
 # Função para exibir cabeçalho estilizado
 function Show-Header {
@@ -37,10 +37,10 @@ function Get-SystemMetrics {
     $memory = Get-CimInstance Win32_OperatingSystem
     $memoryUsed = [math]::Round(($memory.TotalVisibleMemorySize - $memory.FreePhysicalMemory) / 1024 / 1024, 2)
     $memoryTotal = [math]::Round($memory.TotalVisibleMemorySize / 1024 / 1024, 2)
-    $disk = Get-PSDrive -Name "C"
+    $disk = Get-PSDrive -Name "C" -ErrorAction SilentlyContinue
     $diskFree = [math]::Round($disk.Free / 1GB, 2)
     $diskTotal = [math]::Round(($disk.Used + $disk.Free) / 1GB, 2)
-    $netStats = Get-NetAdapterStatistics
+    $netStats = Get-NetAdapterStatistics -ErrorAction SilentlyContinue
     $netSent = [math]::Round(($netStats | Measure-Object -Property SentBytes -Sum).Sum / 1MB, 2)
     $netReceived = [math]::Round(($netStats | Measure-Object -Property ReceivedBytes -Sum).Sum / 1MB, 2)
 
@@ -84,13 +84,27 @@ function Get-ProblematicProcesses {
 
 # Função para otimizar o sistema
 function Optimize-System {
-    Show-Loading "🔧 Otimizando o sistema"
-    Remove-Item "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host "✅ Arquivos temporários limpos!" -ForegroundColor Green
-    Stop-Process -Name "Explorer" -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 1
-    Start-Process "Explorer"
-    Write-Host "✅ Explorer reiniciado!" -ForegroundColor Green
+    Show-Loading "🔧 Preparando otimização do sistema"
+    $confirm = Read-Host "⚠️ Isso vai limpar arquivos temporários e reiniciar o Explorer. Continuar? (S/N)"
+    if ($confirm -eq 'S' -or $confirm -eq 's') {
+        Show-Loading "🔧 Otimizando o sistema"
+        try {
+            Remove-Item "$env:TEMP\*" -Recurse -Force -ErrorAction Stop
+            Write-Host "✅ Arquivos temporários limpos!" -ForegroundColor Green
+        } catch {
+            Write-Host "⚠️ Erro ao limpar arquivos temporários: $($_.Exception.Message)" -ForegroundColor Red
+        }
+        try {
+            Stop-Process -Name "Explorer" -Force -ErrorAction Stop
+            Start-Sleep -Seconds 1
+            Start-Process "Explorer" -ErrorAction Stop
+            Write-Host "✅ Explorer reiniciado!" -ForegroundColor Green
+        } catch {
+            Write-Host "⚠️ Erro ao reiniciar Explorer: $($_.Exception.Message)" -ForegroundColor Red
+        }
+    } else {
+        Write-Host "❌ Otimização cancelada!" -ForegroundColor Yellow
+    }
 }
 
 # Função de monitoramento contínuo
@@ -146,8 +160,12 @@ function Export-Report {
         NetReceivedMB= $metrics.NetReceived
     }
     $report | Export-Csv $reportPath -NoTypeInformation
-    if ($processes) { $processes | Export-Csv "$reportPath.append.csv" -NoTypeInformation }
-    Write-Host "✅ Relatório salvo em: $reportPath" -ForegroundColor Green
+    if ($processes) { 
+        $processes | Export-Csv "$reportPath.append.csv" -NoTypeInformation 
+        Write-Host "✅ Relatório com processos salvo em: $reportPath e $reportPath.append.csv" -ForegroundColor Green
+    } else {
+        Write-Host "✅ Relatório salvo em: $reportPath" -ForegroundColor Green
+    }
     Pause
 }
 
@@ -173,6 +191,19 @@ function Test-Network {
     Pause
 }
 
+# Função de saída estilizada
+function Exit-Program {
+    Show-Header
+    Write-Host "👋 Saindo com estilo..." -ForegroundColor Yellow
+    $animation = @("🚀", "✨", "🌟", "💫")
+    for ($i = 0; $i -lt 5; $i++) {
+        Write-Host "`r$($animation[$i % 4]) Encerrando" -NoNewline -ForegroundColor Green
+        Start-Sleep -Milliseconds 200
+    }
+    Write-Host "`r✅ Programa encerrado!    " -ForegroundColor Green
+    return $true
+}
+
 # Menu interativo com design incrível
 function Show-Menu {
     Show-Header
@@ -192,6 +223,7 @@ function Show-Menu {
 }
 
 # Loop principal
+$exitFlag = $false
 do {
     Show-Menu
     $choice = Read-Host "Digite sua escolha (1-9)"
@@ -211,7 +243,7 @@ do {
                 Write-Host "────────────────────────" -ForegroundColor Cyan
                 $processes | Format-Table -AutoSize
                 $kill = Read-Host "🔪 Deseja encerrar algum processo? (Nome ou 'N')"
-                if ($kill -ne 'N') {
+                if ($kill -ne 'N' -and $kill -ne 'n') {
                     Stop-Process -Name $kill -Force -ErrorAction SilentlyContinue
                     Write-Host "✅ Processo encerrado!" -ForegroundColor Green
                 }
@@ -249,13 +281,11 @@ do {
             Test-Network
         }
         "9" {
-            Write-Host "👋 Saindo com estilo..." -ForegroundColor Yellow
-            Start-Sleep -Milliseconds 500
-            break
+            $exitFlag = Exit-Program
         }
         default {
             Write-Host "❌ Opção inválida, tente novamente!" -ForegroundColor Red
             Pause
         }
     }
-} while ($true)
+} while (-not $exitFlag)
